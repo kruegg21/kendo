@@ -56,8 +56,8 @@ class Kendo():
             if self.debug:
                 self.global_lock.acquire()
                 print "Process", pid, "'s Turn with Lock", lock_number
-                print self.clocks
-                print self.lrlt_list
+                print "CLOCKS", self.clocks
+                print "LAST RELEASE TIME", self.lrlt_list
                 print '\n'
                 self.global_lock.release()
 
@@ -67,6 +67,7 @@ class Kendo():
                 self.global_lock.release()
                 if self.lrlt_list[lock_number] >= self.clocks[pid]:
                     # Atomically release and label lock as not held
+                    # XXX edge case when starting processes must wait one turn wheen lrlt_list is all zeros
                     self.global_lock.acquire()
                     self.locks[lock_number].release()
                     self.lock_held_list[lock_number] = False
@@ -75,7 +76,7 @@ class Kendo():
                     if self.debug:
                         self.global_lock.acquire()
                         print "Process", pid, "Locking Lock", lock_number
-                        print self.clocks
+                        print "CLOCKS", self.clocks
                         print '\n'
                         self.global_lock.release()
                     break
@@ -105,8 +106,8 @@ class Kendo():
 
         if self.debug:       	
             print "Process", pid, "Unlocking Lock", lock_number
-            print self.clocks
-            print self.lrlt_list[lock_number]
+            print "CLOCKS", self.clocks
+            print "LAST RELEASE TIME", self.lrlt_list[lock_number]
             print '\n'
 
         self.global_lock.release()
@@ -143,13 +144,13 @@ class Kendo():
         while True:
             if self.debug:
             	self.global_lock.acquire()
+            	'''
             	print "PID", "CLOCK VALUE"
                 print pid, self.clocks
+                '''
                 self.global_lock.release()
         
-            if process_clock_value <= min(self.clocks) or \
-                (process_clock_value == min(self.clocks) \
-                and pid == self.clocks.index(min(self.clocks))):
+            if process_clock_value == min(self.clocks) and pid == self.clocks.index(min(self.clocks)):
                 break
 
     def pause_logical_clock(self):
