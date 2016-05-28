@@ -99,17 +99,17 @@ class Kendo():
         # Atomically release and label lock as not held
         self.global_lock.acquire()
         self.lock_held_list[lock_number] = False
-        self.lrlt_list[lock_number] = self.clocks[n]
+        self.lrlt_list[lock_number] = self.clocks[pid]
         self.locks[lock_number].release()
         self.clocks[pid] += 1
 
-        if self.debug:
-            print "Process", n, "Unlocking Lock", lock_number
-            print clocks
-            print lrlt_list[lock_number]
+        if self.debug:       	
+            print "Process", pid, "Unlocking Lock", lock_number
+            print self.clocks
+            print self.lrlt_list[lock_number]
             print '\n'
 
-        global_lock.release()
+        self.global_lock.release()
 
     def try_lock(self, lock_number):
         """Try to obtain a lock.
@@ -142,9 +142,12 @@ class Kendo():
         # logical time.
         while True:
             if self.debug:
+            	self.global_lock.acquire()
+            	print "PID", "CLOCK VALUE"
                 print pid, self.clocks
+                self.global_lock.release()
         
-            if process_clock_value < min(self.clocks) or \
+            if process_clock_value <= min(self.clocks) or \
                 (process_clock_value == min(self.clocks) \
                 and pid == self.clocks.index(min(self.clocks))):
                 break

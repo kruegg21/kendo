@@ -29,8 +29,8 @@ class SimpleProcess():
         self.arbitrator.det_mutex_lock(self.pid, self.lock0_num)
         self.arbitrator.det_mutex_lock(self.pid, self.lock1_num)
 
-        self.arbitrator.det_mutex_unlock(self,pid, self.lock1_num)
-        self.arbitrator.det_mutex_unlock(self,pid, self.lock0_num)
+        self.arbitrator.det_mutex_unlock(self.pid, self.lock1_num)
+        self.arbitrator.det_mutex_unlock(self.pid, self.lock0_num)
                 
         # FIXME: remove this after the scheduling's fixed
         self.arbitrator.clocks[self.pid] = 10000
