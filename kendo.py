@@ -1,143 +1,194 @@
+#!/usr/bin/python2
+
 import multiprocessing
 
-####################################################################################
-# GLOBAL LOCK
-# used to make sure output lines print together
-global_lock = multiprocessing.Lock()
-####################################################################################
+class Kendo():
+    """Arbitrator through which all lock requests must go through.
 
-####################################################################################
-# PROCESS
-# very basic process
-# n : process number
-def process(n, lock0, lock1, clocks, lrlt_list, lock_held_list):
-	det_mutex_lock(n, clocks, lock0, lrlt_list, lock_held_list, 0)
+    Members:
+    num_locks - number of available locks
+    clocks    - deterministic logical times for each process
+    lrlt_list - last release times for each lock
+    lock_held_list - list of which locks are held/free
+    """
 
-	det_mutex_lock(n, clocks, lock1, lrlt_list, lock_held_list, 1)
-	det_mutex_unlock(n, clocks, lock1, lrlt_list, lock_held_list, 1)
+    def __init__(self, max_processes, num_locks, debug = False):
+        """Initialize a Kendo arbitrator.
 
-	det_mutex_unlock(n, clocks, lock0, lrlt_list, lock_held_list, 0)
-	clocks[n] = 10000
-####################################################################################
+        Args:
+        max_processes - the maximum possible number of processes that will run
+        num_locks     - number of locks available to all processes
+        debug         - whether or not to be verbose
+        """
 
-####################################################################################
-# KENDO FUNCTIONS
+        # Create a global mutex for bookkeeping and dumping debug messages
+        self.global_lock = multiprocessing.Lock()
 
-# WAITS FOR DETERMINISTIC LOGICAL CLOCK TO BE GLOBAL MINIMUM
-# n : process number
-# clocks : list of deterministic logical clocks
-def wait_for_turn(n, clocks):
-	process_clock_value = clocks[n]
-	while True:
-		# error checking
-		print n, clocks
+        self.debug = debug
+        self.num_locks = num_locks
+        self.max_processes = max_processes
+        self.processes = []
 
-		if process_clock_value < min(clocks) or \
-		   (process_clock_value == min(clocks) and n == clocks.index(min(clocks))):
-			break
-	return
+        # Initialize all locks that could be used
+        manager = multiprocessing.Manager()
+        self.locks = [manager.Lock() for i in xrange(num_locks)]
+        
+        # Initialize deterministic logical clocks
+        self.clocks = manager.list([0] * max_processes)
 
-# ATTEMPTS TO ACQUIRE MUTEX LOCK
-# n : process number
-def det_mutex_lock(n, clocks, lock, lrlt_list, lock_held_list, lock_number):
-	while True:
-		wait_for_turn(n, clocks)
+        # Initialize lock release times
+        self.lrlt_list = manager.list([0] * num_locks)
 
-		# error checking
-		global_lock.acquire()
-		print "Process", n, "'s Turn with Lock", lock_number
-		print clocks
-		print lrlt_list
-		print '\n'
-		global_lock.release()
+        # ...and lock statuses
+        self.lock_held_list = manager.list([False] * num_locks)
 
-		global_lock.acquire()
-		if try_lock(lock, lock_held_list, lock_number):
-			global_lock.release()
-			if lrlt_list[lock_number] >= clocks[n]:
-				# atomically release and label lock as not held
-				global_lock.acquire()
-				lock.release()
-				lock_held_list[lock_number] = 0
-				global_lock.release()
-			else:
-				# error checking
-				global_lock.acquire()
-				print "Process", n, "Locking Lock", lock_number
-				print clocks
-				print '\n'
-				global_lock.release()
-				break
-		else:
-			global_lock.release()
-		clocks[n] += 1
-	clocks[n] += 1
+    def det_mutex_lock(self, pid, lock_number):
+        """Attempt to acquire a mutex
 
-def det_mutex_unlock(n, clocks, lock, lrlt_list, lock_held_list, lock_number):
-	# atomically release and label lock as not held
-	global_lock.acquire()
-	lock_held_list[lock_number] = 0
-	lrlt_list[lock_number] = clocks[n]
-	lock.release()
-	clocks[n] += 1
+        Args:
+        pid - ID/index of process
+        lock_number - index of lock the process wants
+        """
 
-	# error checking
-	print "Process", n, "Unlocking Lock", lock_number
-	print clocks
-	print lrlt_list[lock_number]
-	print '\n'
-	global_lock.release()
+        while True:
+            self.wait_for_turn(pid)
 
-# returns True if lock is free and acquires lock, returns False if lock is not free
-def try_lock(lock, lock_held_list, lock_number):
-	if not lock_held_list[lock_number]:
-		lock_held_list[lock_number] = 1
-		lock.acquire()
-		return True
-	else:
-		return False
+            if self.debug:
+                self.global_lock.acquire()
+                print "Process", pid, "'s Turn with Lock", lock_number
+                print self.clocks
+                print self.lrlt_list
+                print '\n'
+                self.global_lock.release()
 
-def pause_logical_clock():
-	return
+            # TODO: docs
+            self.global_lock.acquire()
+            if self.try_lock(lock_number):
+                self.global_lock.release()
+                if self.lrlt_list[lock_number] >= self.clocks[pid]:
+                    # Atomically release and label lock as not held
+                    self.global_lock.acquire()
+                    self.locks[lock_number].release()
+                    self.lock_held_list[lock_number] = False
+                    self.global_lock.release()
+                else:
+                    if self.debug:
+                        self.global_lock.acquire()
+                        print "Process", pid, "Locking Lock", lock_number
+                        print self.clocks
+                        print '\n'
+                        self.global_lock.release()
+                    break
+            else:
+                self.global_lock.release()
 
-def resume_logical_clock():
-	return
+            # Increment the process's logical time while it's spinning
+            self.clocks[pid] += 1
 
-def incriment_logical_clock():
-	return 
-####################################################################################
+        # Increment the process's logical time after acquisition
+        self.clocks[pid] += 1
+
+    def det_mutex_unlock(self, pid, lock_number):
+        """Deterministically unlock a mutex.
+
+        Args:
+        pid         - ID/index of the calling process
+        lock_number - index of the lock to unlock
+        """
+
+        # Atomically release and label lock as not held
+        self.global_lock.acquire()
+        self.lock_held_list[lock_number] = False
+        self.lrlt_list[lock_number] = self.clocks[n]
+        self.locks[lock_number].release()
+        self.clocks[pid] += 1
+
+        if self.debug:
+            print "Process", n, "Unlocking Lock", lock_number
+            print clocks
+            print lrlt_list[lock_number]
+            print '\n'
+
+        global_lock.release()
+
+    def try_lock(self, lock_number):
+        """Try to obtain a lock.
+
+        Args:
+        lock_number - index of the desired lock
+
+        Returns True if lock is free, False if acquisition failed
+        """
+
+        # Check if the lock is free
+        if not self.lock_held_list[lock_number]:
+            self.lock_held_list[lock_number] = True
+            self.locks[lock_number].acquire()
+            return True
+        
+        return False
+
+    def wait_for_turn(self, pid):
+        """Wait until the given process can proceed
+
+        Args:
+        pid - ID/index of the process
+        """
+
+        # Get the process's logical time
+        process_clock_value = self.clocks[pid]
+
+        # Spin while it's either not its turn, or it has to wait until a certain
+        # logical time.
+        while True:
+            if self.debug:
+                print pid, self.clocks
+        
+            if process_clock_value < min(self.clocks) or \
+                (process_clock_value == min(self.clocks) \
+                and pid == self.clocks.index(min(self.clocks))):
+                break
+
+    def pause_logical_clock(self):
+        pass
+    
+    def resume_logical_clock(self):
+        pass
+    
+    def increment_logical_clock(self):
+        pass
+
+    def run(self):
+        """Run all processes"""
+
+        if self.debug:
+            print "Starting to run all processes..."
+
+        threads = []
+
+        for p in self.processes:
+            t = multiprocessing.Process(target=p.run)
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        if self.debug:
+            print "Done!"
+
+    def register_process(self, process):
+        """Register a process to be run with this arbitrator
+
+        Args:
+        process - the process to be run
+
+        Returns the PID of the process, None if something went awry.
+        """
+        if len(self.processes) < self.max_processes:
+            self.processes.append(process)
+            return len(self.processes) - 1
+
 
 if __name__ == "__main__":
-	# MAXIMUM NUMBER OF PROCESSES AND NUMBER OF LOCKS
-	# with current code, these values need to be specified
-	max_processes = 4
-	num_locks = 2
-
-	# CREATE LOCK TO SHARE BETWEEN PROCESS
-	# we can create any number of locks depending on synchronization needs
-	manager = multiprocessing.Manager()
-	lock0 = manager.Lock()
-	lock1 = manager.Lock()
-
-
-	# CREATE LIST WITH DETERMINISTIC LOGICAL CLOCKS 
-	# FOR EACH PROCESS
-	clocks = manager.list([0] * max_processes)
-
-	# CREATE LIST WITH RELEASE TIME FOR EACH LOCK
-	# lrlt : lock released logical time list
-	lrlt_list = manager.list([0] * num_locks)
-
-	# CREATE LIST WITH LOCK HELD BOOLEAN
-	lock_held_list = manager.list([0] * num_locks)
-
-	# RUN PROCESSES
-	p = range(max_processes)
-	for i in xrange(max_processes):
-		p[i] = multiprocessing.Process(target=process,  
-							    	   args=(i, lock0, lock1, clocks, lrlt_list, lock_held_list))
-		p[i].start()
-
-	# WAIT FOR PROCESSES TO END
-	for i in xrange(max_processes):
-		p[i].join()
+    pass
