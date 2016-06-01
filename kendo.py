@@ -193,6 +193,190 @@ class Kendo():
             self.processes.append(process)
             return len(self.processes) - 1
 
+class Kendo_SRTF():
+    """Arbitrator through which all lock requests must go through.
+
+    Members:
+    num_locks - number of available locks
+    clocks    - deterministic logical times for each process
+    lrlt_list - last release times for each lock
+    lock_held_list - list of which locks are held/free
+    """
+
+    def __init__(self, max_processes, num_locks, debug = False):
+        """Initialize a Kendo arbitrator.
+
+        Args:
+        max_processes - the maximum possible number of processes that will run
+        num_locks     - number of locks available to all processes
+        debug         - whether or not to be verbose
+        """
+
+        # Create a global mutex for bookkeeping and dumping debug messages
+        self.global_lock = multiprocessing.Lock()
+
+        self.debug = debug
+        self.num_locks = num_locks
+        self.max_processes = max_processes
+        self.processes = []
+
+        # Initialize all locks that could be used
+        manager = multiprocessing.Manager()
+        self.locks = [manager.Lock() for i in xrange(num_locks)]
+        
+        # Initialize deterministic logical clocks
+        self.clocks = manager.list([0] * max_processes)
+
+        # Initialize lock release times
+        self.lrlt_list = manager.list([0] * num_locks)
+
+        # ...and lock statuses
+        self.lock_held_list = manager.list([False] * num_locks)
+
+        # list with remaining number of lock acquire needed for each process
+        # FIX TO ALLOW PROGRAMMER TO PASS THIS LIST TO KENDO OBJECT
+        self.clocks = manager.list([2] * max_processes)
+
+        # Create skip list to prevent lock highest priority from spinning on
+        # a lock it does not have and will not be able to
+        self.skip_list = manager.list([0] * max_processes)
+
+    def det_mutex_lock(self, pid, lock_number):
+        """Attempt to acquire a mutex
+
+        Args:
+        pid - ID/index of process
+        lock_number - index of lock the process wants
+        """
+
+        while True:
+            self.srtf_wait(pid)
+
+            if self.debug:
+                self.global_lock.acquire()
+                print "Process", pid, "'s Turn with Lock", lock_number
+                print "REMAINING NUMBER OF LOCK ACQUISITIONS", self.clocks
+                print "SKIP LIST", self.skip_list
+                print "LOCK HELD LIST", self.lock_held_list
+                print '\n'
+                self.global_lock.release()
+
+            # TODO: docs
+            self.global_lock.acquire()
+            if self.try_lock(lock_number):
+                print "PROCESS", pid, "Acquired Lock", lock_number
+                self.clocks[pid] -= 1
+                self.skip_list = [0] * len(self.skip_list)
+                self.global_lock.release()
+                break
+            else:
+                self.skip_list[pid] = 1
+                self.global_lock.release()
+
+            # Increment the process's logical time while it's spinning
+            self.clocks[pid] += 1
+
+        # Increment the process's logical time after acquisition
+        self.clocks[pid] += 1
+
+    def det_mutex_unlock(self, pid, lock_number):
+        """Deterministically unlock a mutex.
+
+        Args:
+        pid         - ID/index of the calling process
+        lock_number - index of the lock to unlock
+        """
+
+        # Atomically release and label lock as not held
+        self.global_lock.acquire()
+        self.lock_held_list[lock_number] = False
+        self.skip_list = [0] * len(self.skip_list)
+        self.locks[lock_number].release()
+
+        if self.debug:          
+            print "Process", pid, "Unlocking Lock", lock_number
+            print '\n'
+
+        self.global_lock.release()
+
+    def try_lock(self, lock_number):
+        """Try to obtain a lock.
+
+        Args:
+        lock_number - index of the desired lock
+
+        Returns True if lock is free, False if acquisition failed
+        """
+
+        # Check if the lock is free
+        if not self.lock_held_list[lock_number]:
+            self.lock_held_list[lock_number] = True
+            self.locks[lock_number].acquire()
+            return True
+        else:
+            return False
+
+    # skip_list is used to prevent the thread with highest priority
+    # spinning on lock that it does not have, resulting in deadlock
+    def srtf_wait(self, pid):
+        while True:
+            # debug
+            print "PROCESS", pid, "WAITING FOR TURN"
+            print "REMAINING LOCK ACQUIRES", self.clocks 
+
+            # atomically find highest priority process
+            self.global_lock.acquire()
+            best_process = 0
+            for i in xrange(len(self.clocks)):
+                if self.clocks[i] <= self.clocks[best_process] and self.skip_list[i] != 1:
+                    best_process = i
+            if best_process == pid:
+                self.global_lock.release()
+                break
+            else:
+                self.global_lock.release()
+        return
+
+    def pause_logical_clock(self):
+        pass
+    
+    def resume_logical_clock(self):
+        pass
+    
+    def increment_logical_clock(self):
+        pass
+
+    def run(self):
+        """Run all processes"""
+
+        if self.debug:
+            print "Starting to run all processes..."
+
+        threads = []
+
+        for p in self.processes:
+            t = multiprocessing.Process(target=p.run)
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        if self.debug:
+            print "Done!"
+
+    def register_process(self, process):
+        """Register a process to be run with this arbitrator
+
+        Args:
+        process - the process to be run
+
+        Returns the PID of the process, None if something went awry.
+        """
+        if len(self.processes) < self.max_processes:
+            self.processes.append(process)
+            return len(self.processes) - 1
+
 
 if __name__ == "__main__":
     pass

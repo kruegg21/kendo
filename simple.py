@@ -40,13 +40,32 @@ class SimpleProcess():
 if __name__ == "__main__":
     import kendo
 
-    print "Testing SimpleProcess..."
+    test_basic_kendo = False
+    test_srtf_kendo = True
 
-    kendo_arbitrator = kendo.Kendo(max_processes=2, num_locks=2, debug=True)
-    
-    process1 = SimpleProcess(kendo_arbitrator, 0, 1)
-    process2 = SimpleProcess(kendo_arbitrator, 0, 1)
-    
-    kendo_arbitrator.run()
+    # TESTING BASIC KENDO
+    if test_basic_kendo:
+        print "Testing SimpleProcess with basic Kendo..."
 
-    print "Done testing SimpleProcess!"
+        kendo_arbitrator = kendo.Kendo(max_processes=2, num_locks=2, debug=True)
+        
+        process1 = SimpleProcess(kendo_arbitrator, 0, 1)
+        process2 = SimpleProcess(kendo_arbitrator, 0, 1)
+        
+        kendo_arbitrator.run()
+
+        print "Done testing SimpleProcess with basic Kendo!"
+
+    # TESTING SRTF KENDO
+    if test_srtf_kendo:
+        print "Testing SimpleProcess with SRTF Kendo..."
+
+        kendo_arbitrator = kendo.Kendo_SRTF(max_processes=2, num_locks=2, debug=True)
+        
+        process1 = SimpleProcess(kendo_arbitrator, 0, 1)
+        process2 = SimpleProcess(kendo_arbitrator, 0, 1)
+        
+        kendo_arbitrator.run()
+
+        print "Done testing SimpleProcess with SRTF Kendo!"
+
